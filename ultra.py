@@ -18,7 +18,7 @@ from keras.optimizers import SGD
 from keras.optimizers import Adam
 from keras import backend as K 
 from keras.callbacks import EarlyStopping, ModelCheckpoint
-from augment import ImageDataGenerator 
+#from augment import ImageDataGenerator 
 
 smooth = 1.
 def np_dice_coef(y_true, y_pred):
@@ -186,8 +186,8 @@ def load_train_data(img_rows, img_cols):
     df = pd.read_csv('train_masks.csv')
     unique_subjects = df.subject.unique()
     total = df.shape[0]
-    X_train = np.ndarray((total, 1, img_rows, img_cols), dtype=np.uint8)
-    y_train = np.ndarray((total, 1, img_rows, img_cols), dtype=np.uint8)
+    X_train = np.ndarray((total*4, 1, img_rows, img_cols), dtype=np.uint8)
+    y_train = np.ndarray((total*4, 1, img_rows, img_cols), dtype=np.uint8)
     for i in range(total):
         image_name =  str(df['subject'][i]) + '_' + str(df['img'][i]) + '.tif'
         mask_name = str(df['subject'][i]) + '_' + str(df['img'][i]) + '_mask.tif'
