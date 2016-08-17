@@ -7,6 +7,7 @@ import cv2
 import pickle
 import pandas as pd
 import datetime
+import random
 from shutil import copy2
 
 from sklearn.cross_validation import train_test_split
@@ -27,10 +28,11 @@ def np_dice_coef(y_true, y_pred):
     return (2. * intersection + smooth) / (np.sum(y_true_f) + np.sum(y_pred_f) + smooth)
 
 def dice_coef(y_true, y_pred):
-    y_true_f = K.flatten(y_true)
-    y_pred_f = K.flatten(y_pred)
-    intersection = K.sum(y_true_f * y_pred_f)
-    return (2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+    y_true_f = K.batch_flatten(y_true)
+    y_pred_f = K.batch_flatten(y_pred)
+    intersection = 2. * K.sum(y_true_f * y_pred_f, axis=1, keepdims=True) + smooth
+    union = K.sum(y_true_f, axis=1, keepdims=True) + K.sum(y_pred_f, axis=1, keepdims=True) 
+    return K.mean(intersection / union)
 
 def dice_coef_loss(y_true, y_pred):
     return - dice_coef(y_true, y_pred)
@@ -130,6 +132,29 @@ def get_im_cv2(path, img_rows, img_cols):
     resized = cv2.resize(img, (img_cols, img_rows))
     return resized
 
+def generate_im_cv2(path, image_name):
+    img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    # Reduce size
+    rotate = random.uniform(-5, 5)
+    M = cv2.getRotationMatrix2D((img.shape[1]/2, img.shape[0]/2), rotate, 1)
+    img = cv2.warpAffine(img, M, (img.shape[1], img.shape[0]))
+    rimg=img.copy()
+    fimg=img.copy()
+    himg=cv2.flip(img,1)
+    vimg=cv2.flip(img,0)
+    cv2.imwrite(os.path.join('train_r', image_name),img)
+    cv2.imwrite(os.path.join('train_v', image_name),vimg)
+    cv2.imwrite(os.path.join('train_h', image_name),himg)
+    
+def preprocess_data():
+    print('Read train images')
+    files = glob.glob("train/*[0-9].tif")
+    for fl in files:
+        flbase = os.path.basename(fl)
+        generate_im_cv2(fl, flbase[:-4] + '.tif')
+        mask_path = "train/" + flbase[:-4] + "_mask.tif"
+        generate_im_cv2(mask_path, flbase[:-4] + "_mask.tif")
+	
 def load_test_data(img_rows, img_cols):
     print('Read test images')
     test_data_path = os.path.join('test')
@@ -169,10 +194,15 @@ def load_train_data(img_rows, img_cols):
         img = get_im_cv2(os.path.join('train', image_name), img_rows, img_cols)
         img = np.array([img])
         X_train[i] = img
-        
+        X_train[i+1] = np.array([get_im_cv2(os.path.join('train_r', image_name), img_rows, img_cols)])
+        X_train[i+2] = np.array([get_im_cv2(os.path.join('train_h', image_name), img_rows, img_cols)])
+        X_train[i+3] = np.array([get_im_cv2(os.path.join('train_v', image_name), img_rows, img_cols)])
         img_mask = get_im_cv2(os.path.join('train', mask_name), img_rows, img_cols)
         img_mask = np.array([img_mask])
         y_train[i] = img_mask
+        y_train[i+1] = np.array([get_im_cv2(os.path.join('train_r', mask_name), img_rows, img_cols)])
+        y_train[i+2] = np.array([get_im_cv2(os.path.join('train_h', mask_name), img_rows, img_cols)])
+        y_train[i+3] = np.array([get_im_cv2(os.path.join('train_v', mask_name), img_rows, img_cols)])
         subject_id.append(df['subject'][i])
     
     print(unique_subjects)
@@ -186,7 +216,13 @@ def copy_selected_subjects(train_data, train_target, subject_id, subject_list):
     for i in range(len(subject_id)):
         if subject_id[i] in subject_list:
             data.append(train_data[i])
+			data.append(train_data[i+1])
+			data.append(train_data[i+2])
+			data.append(train_data[i+3])
             target.append(train_target[i])
+			target.append(train_target[i+1])
+			target.append(train_target[i+2])
+			target.append(train_target[i+3])
             #index.append(i)
     data = np.array(data)
     target = np.array(target)
@@ -211,7 +247,7 @@ def run_single():
     # input image dimensions
     img_rows, img_cols = 112, 144
     batch_size = 32
-    nb_epoch = 250
+    nb_epoch = 50
     random_state = 51
 
     train_data, train_target, subject_id, unique_subjects = read_and_normalize_train_data(img_rows, img_cols)
@@ -228,29 +264,29 @@ def run_single():
     print('Train subjects: ', subject_list_train)
     print('Valid subjects: ', subject_list_val)
    
-    callbacks = [ModelCheckpoint('unet2.hdf5', monitor='val_loss', save_best_only=True)]
-    datagen = ImageDataGenerator(
-        featurewise_center=False,  # set input mean to 0 over the dataset
-        samplewise_center=False,  # set each sample mean to 0
-        featurewise_std_normalization=False,  # divide inputs by std of the dataset
-        samplewise_std_normalization=False,  # divide each input by its std
-        zca_whitening=False,  # apply ZCA whitening
-        rotation_range=15,  # randomly rotate images in the range (degrees, 0 to 180)
+    callbacks = [ModelCheckpoint('unet3.hdf5', monitor='val_loss', save_best_only=True)]
+    #datagen = ImageDataGenerator(
+    #    featurewise_center=False,  # set input mean to 0 over the dataset
+    #    samplewise_center=False,  # set each sample mean to 0
+    #   featurewise_std_normalization=False,  # divide inputs by std of the dataset
+    #    samplewise_std_normalization=False,  # divide each input by its std
+    #    zca_whitening=False,  # apply ZCA whitening
+    #    rotation_range=15,  # randomly rotate images in the range (degrees, 0 to 180)
         #width_shift_range=0,  # randomly shift images horizontally (fraction of total width)
         #height_shift_range=0,  # randomly shift images vertically (fraction of total height)
         #shear_range=0.2,
         #zoom_range=0.2,
         #rescale=1.25,
-        horizontal_flip=True,  # randomly flip images
-        vertical_flip=True)  # randomly flip images
+    #    horizontal_flip=True,  # randomly flip images
+    #    vertical_flip=True)  # randomly flip images
     model = get_unet(img_rows, img_cols)
-    #model.fit(X_train, Y_train, batch_size=batch_size, nb_epoch=nb_epoch, shuffle=True, verbose=1, 
-    #           validation_data=(X_valid, Y_valid), callbacks=callbacks)
-    datagen.fit(X_train)
-    model.fit_generator(datagen.flow(X_train, Y_train,batch_size=batch_size),
-                        samples_per_epoch=X_train.shape[0]*2,
-                        nb_epoch=nb_epoch,validation_data=(X_valid, Y_valid), callbacks=callbacks)
-    model.load_weights('unet2.hdf5')
+    model.fit(X_train, Y_train, batch_size=batch_size, nb_epoch=nb_epoch, shuffle=True, verbose=1, 
+               validation_data=(X_valid, Y_valid), callbacks=callbacks)
+    #datagen.fit(X_train)
+    #model.fit_generator(datagen.flow(X_train, Y_train,batch_size=batch_size),
+    #                    samples_per_epoch=X_train.shape[0]*2,
+    #                    nb_epoch=nb_epoch,validation_data=(X_valid, Y_valid), callbacks=callbacks)
+    model.load_weights('unet3.hdf5')
     predictions_valid = model.predict(X_valid, batch_size=batch_size, verbose=1)
     score = np_dice_coef(Y_valid, predictions_valid)
     print('Score dice coef: ', score)	
@@ -344,6 +380,7 @@ def submission(img_rows, img_cols, mean, std):
             f.write(s + '\n')
 		
 if __name__ == '__main__':
+    #preprocess_data()
     run_single()
     #run_cross_validation()
 	
